@@ -17,9 +17,9 @@ import { format } from 'date-fns';
 
 import BookingStepper from './BookingStepper';
 import SummaryPanel from './SummaryPanel';
-import StepEmployeeSelection from './StepEmployeeSelection';
 import StepCategorySelection from './StepCategorySelection';
 import StepServiceSelection from './StepServiceSelection';
+import StepEmployeeSelection from './StepEmployeeSelection';
 import StepDateTimeSelection from './StepDateTimeSelection';
 import StepCustomerDetails from './StepCustomerDetails';
 import StepConfirmation from './StepConfirmation';
@@ -37,6 +37,7 @@ const initialCustomerData: CustomerData = {
   email: '',
   gender: '',
   notes: '',
+  privacyConsent: false,
   marketingConsent: false,
 };
 
@@ -59,10 +60,12 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
   const [servicesByCategory, setServicesByCategory] = useState<Record<string, Service[]>>({});
 
   // Booking state
+  // Steps: 1=Category, 2=Service, 3=Employee, 4=DateTime, 5=CustomerDetails, 6=Confirmation
   const [bookingState, setBookingState] = useState<BookingState>({
     currentStep: 1,
     selectedEmployee: null,
     anyPerson: false,
+    eligibleEmployeeIds: [],
     selectedCategory: null,
     selectedService: null,
     selectedDate: null,
@@ -78,9 +81,6 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [bookingConfirmation, setBookingConfirmation] = useState<BookingConfirmation | null>(null);
-
-  // Substep for service selection (category vs service)
-  const [serviceSubStep, setServiceSubStep] = useState<'category' | 'service'>('category');
 
   // Fetch company data using n8n API
   useEffect(() => {
@@ -113,12 +113,11 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
         // Set services by category
         setServicesByCategory(data.servicesByCategory || {});
 
-        // Auto-select employee in single mode
+        // Auto-select employee in single mode (but keep starting at step 1)
         if (data.ui?.employeeSelection?.mode === 'single' && transformedEmployees.length === 1) {
           setBookingState((prev) => ({
             ...prev,
             selectedEmployee: transformedEmployees[0],
-            currentStep: 2,
           }));
         }
       } catch (err) {
@@ -132,7 +131,7 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
     loadCompanyData();
   }, [companySlug]);
 
-  // Fetch available slots when date changes
+  // Fetch available slots when date changes (step 4 = DateTime)
   const loadSlots = useCallback(async () => {
     if (!bookingState.selectedDate || !bookingState.selectedService) return;
 
@@ -146,6 +145,9 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
         serviceId: bookingState.selectedService.id,
         employeeId: bookingState.selectedEmployee?.id || null,
         any_person: bookingState.anyPerson,
+        eligibleEmployeeIds: bookingState.anyPerson
+          ? bookingState.eligibleEmployeeIds
+          : undefined,
       });
 
       setAvailableSlots(slots);
@@ -161,10 +163,11 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
     bookingState.selectedService,
     bookingState.selectedEmployee,
     bookingState.anyPerson,
+    bookingState.eligibleEmployeeIds,
   ]);
 
   useEffect(() => {
-    if (bookingState.currentStep === 3 && bookingState.selectedDate) {
+    if (bookingState.currentStep === 4 && bookingState.selectedDate) {
       loadSlots();
     }
   }, [bookingState.currentStep, bookingState.selectedDate, loadSlots]);
@@ -179,25 +182,47 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
   };
 
   const handleSelectAnyPerson = () => {
+    // Auto-advance to date selection when "Kdorkoli" is chosen
     setBookingState((prev) => ({
       ...prev,
       selectedEmployee: null,
       anyPerson: true,
+      currentStep: 4,
     }));
   };
 
   const handleSelectCategory = (category: ServiceCategory) => {
+    // Selecting a category auto-advances to service selection (step 2)
+    // Clear service, employee, and eligible IDs when category changes
     setBookingState((prev) => ({
       ...prev,
       selectedCategory: category,
+      selectedService: null,
+      selectedEmployee: null,
+      anyPerson: false,
+      eligibleEmployeeIds: [],
+      currentStep: 2,
     }));
-    setServiceSubStep('service');
   };
 
   const handleSelectService = (service: Service) => {
+    // Compute eligible employee IDs for this service
+    const rawIds = companyData?.employeesByServiceId?.[String(service.id)];
+    const eligibleEmployeeIds =
+      rawIds != null ? rawIds.map(String) : employees.map((e) => e.id);
+
+    // Auto-select if exactly one eligible employee
+    const eligible = employees.filter((emp) =>
+      eligibleEmployeeIds.includes(String(emp.id))
+    );
+    const autoSelected = eligible.length === 1 ? eligible[0] : null;
+
     setBookingState((prev) => ({
       ...prev,
       selectedService: service,
+      selectedEmployee: autoSelected,
+      anyPerson: false,
+      eligibleEmployeeIds,
     }));
   };
 
@@ -246,12 +271,14 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
         customerGender: bookingState.customer.gender,
         customerNote: bookingState.customer.notes || '',
         gdprSendMarketing: bookingState.customer.marketingConsent,
+        gdprPrivacyConsent: bookingState.customer.privacyConsent,
+        consentTimestamp: new Date().toISOString(),
       });
 
       if (result.success) {
         setBookingConfirmation(result);
         setIsConfirmed(true);
-        setBookingState((prev) => ({ ...prev, currentStep: 5 }));
+        setBookingState((prev) => ({ ...prev, currentStep: 6 }));
       } else {
         alert(result.message || 'Prišlo je do napake pri ustvarjanju rezervacije.');
       }
@@ -266,15 +293,11 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
   const handleNextStep = () => {
     setBookingState((prev) => ({
       ...prev,
-      currentStep: Math.min(prev.currentStep + 1, 5),
+      currentStep: Math.min(prev.currentStep + 1, 6),
     }));
   };
 
   const handlePrevStep = () => {
-    if (bookingState.currentStep === 2 && serviceSubStep === 'service') {
-      setServiceSubStep('category');
-      return;
-    }
     setBookingState((prev) => ({
       ...prev,
       currentStep: Math.max(prev.currentStep - 1, 1),
@@ -282,51 +305,60 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
   };
 
   const handleNewBooking = () => {
-    const isSingleMode = companyData?.ui?.employeeSelection?.mode === 'single';
     setBookingState({
-      currentStep: isSingleMode ? 2 : 1,
-      selectedEmployee: isSingleMode && employees.length > 0 ? employees[0] : null,
+      currentStep: 1,
+      selectedEmployee: null,
       anyPerson: false,
+      eligibleEmployeeIds: [],
       selectedCategory: null,
       selectedService: null,
       selectedDate: null,
       selectedTime: null,
       customer: initialCustomerData,
     });
-    setServiceSubStep('category');
     setIsConfirmed(false);
     setBookingConfirmation(null);
     setAvailableSlots([]);
   };
 
   const handleReset = () => {
-    const isSingleMode = companyData?.ui?.employeeSelection?.mode === 'single';
     setBookingState({
-      currentStep: isSingleMode ? 2 : 1,
-      selectedEmployee: isSingleMode && employees.length > 0 ? employees[0] : null,
+      currentStep: 1,
+      selectedEmployee: null,
       anyPerson: false,
+      eligibleEmployeeIds: [],
       selectedCategory: null,
       selectedService: null,
       selectedDate: null,
       selectedTime: null,
       customer: initialCustomerData,
     });
-    setServiceSubStep('category');
     setIsConfirmed(false);
     setBookingConfirmation(null);
     setAvailableSlots([]);
   };
 
+  // Employees eligible for the currently selected service
+  const filteredEmployees = bookingState.selectedService
+    ? employees.filter((emp) =>
+        bookingState.eligibleEmployeeIds.includes(String(emp.id))
+      )
+    : employees;
+
   // Navigation validation
   const canGoNext = (): boolean => {
     switch (bookingState.currentStep) {
       case 1:
-        return bookingState.selectedEmployee !== null || bookingState.anyPerson;
+        return bookingState.selectedCategory !== null;
       case 2:
         return bookingState.selectedService !== null;
       case 3:
+        // Block progression if no eligible employees for this service
+        if (filteredEmployees.length === 0) return false;
+        return bookingState.selectedEmployee !== null || bookingState.anyPerson;
+      case 4:
         return bookingState.selectedDate !== null && bookingState.selectedTime !== null;
-      case 4: {
+      case 5: {
         const { firstName, lastName, phone, email } = bookingState.customer;
         const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
         const phoneValid = /^[\d\s\+\-\(\)]{6,}$/.test(phone.trim());
@@ -403,16 +435,15 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
       {!isConfirmed && (
         <BookingStepper
           currentStep={bookingState.currentStep}
-          totalSteps={5}
+          totalSteps={6}
           primaryColor={theme.primaryColor}
         />
       )}
 
-      {/* Main Content - two-column grid at xl to avoid SummaryPanel overlap */}
-      <div className="xl:grid xl:grid-cols-[1fr_300px] xl:gap-6 xl:max-w-[1440px] xl:mx-auto xl:px-8">
-      <main className="pb-48 md:pb-40 min-w-0">
+      {/* Main Content */}
+      <main className="pb-28">
         <AnimatePresence mode="wait">
-          {/* Step 1: Employee Selection */}
+          {/* Step 1: Category Selection */}
           {bookingState.currentStep === 1 && !isConfirmed && (
             <motion.div
               key="step1"
@@ -422,14 +453,11 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
               exit="exit"
               transition={{ duration: 0.3 }}
             >
-              <StepEmployeeSelection
-                employees={employees}
-                selectedEmployee={bookingState.selectedEmployee}
-                anyPerson={bookingState.anyPerson}
-                onSelectEmployee={handleSelectEmployee}
-                onSelectAnyPerson={handleSelectAnyPerson}
+              <StepCategorySelection
+                categories={serviceCategories}
+                services={services}
+                onSelectCategory={handleSelectCategory}
                 primaryColor={theme.primaryColor}
-                secondaryColor={theme.secondaryColor}
               />
             </motion.div>
           )}
@@ -444,30 +472,42 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
               exit="exit"
               transition={{ duration: 0.3 }}
             >
-              {serviceSubStep === 'category' ? (
-                <StepCategorySelection
-                  categories={serviceCategories}
-                  services={services}
-                  onSelectCategory={handleSelectCategory}
-                  primaryColor={theme.primaryColor}
-                />
-              ) : (
-                <StepServiceSelection
-                  services={getServicesForCategory()}
-                  category={bookingState.selectedCategory!}
-                  selectedService={bookingState.selectedService}
-                  onSelectService={handleSelectService}
-                  onBack={() => setServiceSubStep('category')}
-                  primaryColor={theme.primaryColor}
-                />
-              )}
+              <StepServiceSelection
+                services={getServicesForCategory()}
+                category={bookingState.selectedCategory!}
+                selectedService={bookingState.selectedService}
+                onSelectService={handleSelectService}
+                primaryColor={theme.primaryColor}
+              />
             </motion.div>
           )}
 
-          {/* Step 3: Date/Time Selection */}
+          {/* Step 3: Employee Selection */}
           {bookingState.currentStep === 3 && !isConfirmed && (
             <motion.div
               key="step3"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+            >
+              <StepEmployeeSelection
+                employees={filteredEmployees}
+                selectedEmployee={bookingState.selectedEmployee}
+                anyPerson={bookingState.anyPerson}
+                onSelectEmployee={handleSelectEmployee}
+                onSelectAnyPerson={handleSelectAnyPerson}
+                primaryColor={theme.primaryColor}
+                secondaryColor={theme.secondaryColor}
+              />
+            </motion.div>
+          )}
+
+          {/* Step 4: Date/Time Selection */}
+          {bookingState.currentStep === 4 && !isConfirmed && (
+            <motion.div
+              key="step4"
               variants={pageVariants}
               initial="initial"
               animate="animate"
@@ -486,10 +526,10 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
             </motion.div>
           )}
 
-          {/* Step 4: Customer Details */}
-          {bookingState.currentStep === 4 && !isConfirmed && (
+          {/* Step 5: Customer Details */}
+          {bookingState.currentStep === 5 && !isConfirmed && (
             <motion.div
-              key="step4"
+              key="step5"
               variants={pageVariants}
               initial="initial"
               animate="animate"
@@ -511,10 +551,10 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
             </motion.div>
           )}
 
-          {/* Step 5: Confirmation */}
+          {/* Step 6: Confirmation */}
           {isConfirmed && (
             <motion.div
-              key="step5"
+              key="step6"
               variants={pageVariants}
               initial="initial"
               animate="animate"
@@ -539,25 +579,8 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
         </AnimatePresence>
       </main>
 
-      {/* Desktop Summary Panel - sticky in grid column */}
-      {!isConfirmed && bookingState.currentStep < 4 && (
-        <div className="hidden xl:block pt-0 pb-40">
-          <div className="sticky top-32">
-            <SummaryPanel
-              employee={bookingState.selectedEmployee}
-              anyPerson={bookingState.anyPerson}
-              service={bookingState.selectedService}
-              date={bookingState.selectedDate}
-              time={bookingState.selectedTime}
-              primaryColor={theme.primaryColor}
-            />
-          </div>
-        </div>
-      )}
-      </div>{/* end xl:grid */}
-
       {/* Bottom Navigation (Mobile & Desktop) */}
-      {!isConfirmed && bookingState.currentStep <= 4 && (
+      {!isConfirmed && bookingState.currentStep <= 5 && (
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
@@ -569,9 +592,9 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
               onClick={handlePrevStep}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              disabled={bookingState.currentStep === 1 && serviceSubStep === 'category'}
+              disabled={bookingState.currentStep === 1}
               className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all ${
-                bookingState.currentStep === 1 && serviceSubStep === 'category'
+                bookingState.currentStep === 1
                   ? 'opacity-50 cursor-not-allowed text-white/40'
                   : 'text-white hover:bg-white/10'
               }`}
@@ -580,8 +603,8 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
               <span className="hidden sm:inline">Nazaj</span>
             </motion.button>
 
-            {/* Mobile/tablet summary — hidden at xl (where SummaryPanel is visible) */}
-            <div className="flex-1 xl:hidden">
+            {/* Price summary in bottom nav */}
+            <div className="flex-1">
               {bookingState.selectedService && bookingState.selectedService.price != null && (
                 <div className="text-center">
                   <p className="text-xs text-white/60">Skupaj</p>
@@ -594,12 +617,12 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
 
             {/* Next / Submit Button */}
             <motion.button
-              onClick={bookingState.currentStep === 4 ? handleSubmit : handleNextStep}
+              onClick={bookingState.currentStep === 5 ? handleSubmit : handleNextStep}
               whileHover={{ scale: canGoNext() ? 1.02 : 1 }}
               whileTap={{ scale: canGoNext() ? 0.98 : 1 }}
-              disabled={!canGoNext() || (bookingState.currentStep === 4 && isSubmitting)}
+              disabled={!canGoNext() || (bookingState.currentStep === 5 && isSubmitting)}
               className={`flex items-center gap-2 px-8 py-3 rounded-xl font-semibold transition-all ${
-                canGoNext() && !(bookingState.currentStep === 4 && isSubmitting)
+                canGoNext() && !(bookingState.currentStep === 5 && isSubmitting)
                   ? 'text-white shadow-lg'
                   : 'bg-white/20 text-white/50 cursor-not-allowed'
               }`}
@@ -608,9 +631,9 @@ export default function BookingPage({ companySlug }: BookingPageProps) {
                 boxShadow: canGoNext() ? `0 10px 30px ${theme.primaryColor}40` : undefined,
               }}
             >
-              {bookingState.currentStep === 4 && isSubmitting ? (
+              {bookingState.currentStep === 5 && isSubmitting ? (
                 <span>Pošiljam...</span>
-              ) : bookingState.currentStep === 4 ? (
+              ) : bookingState.currentStep === 5 ? (
                 <>
                   <span>Rezerviraj</span>
                   <ArrowRight className="w-5 h-5" />

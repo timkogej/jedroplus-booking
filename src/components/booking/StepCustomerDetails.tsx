@@ -70,6 +70,7 @@ export default function StepCustomerDetails({
 }: StepCustomerDetailsProps) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [showPrivacyError, setShowPrivacyError] = useState(false);
 
   const validateEmail = (email: string) => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -115,6 +116,11 @@ export default function StepCustomerDetails({
       phone: true,
       email: true,
     });
+
+    if (!customer.privacyConsent) {
+      setShowPrivacyError(true);
+      return;
+    }
 
     if (validate()) {
       onSubmit();
@@ -348,35 +354,71 @@ export default function StepCustomerDetails({
                 </div>
               </div>
 
-              {/* Marketing Consent */}
-              <div className="md:col-span-2">
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="marketing"
-                    checked={customer.marketingConsent}
-                    onCheckedChange={(checked) =>
-                      onUpdateCustomer({ marketingConsent: checked as boolean })
-                    }
-                    className="mt-1"
+              {/* GDPR Consents */}
+              <div className="md:col-span-2 space-y-3">
+                {/* Privacy consent - REQUIRED */}
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={customer.privacyConsent}
+                    onChange={(e) => {
+                      onUpdateCustomer({ privacyConsent: e.target.checked });
+                      if (e.target.checked) setShowPrivacyError(false);
+                    }}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 focus:ring-2"
+                    style={{ accentColor: primaryColor }}
                   />
-                  <Label
-                    htmlFor="marketing"
-                    className="text-sm text-gray-600 cursor-pointer"
-                  >
+                  <span className="text-sm text-gray-600">
+                    Strinjam se z obdelavo osebnih podatkov za namen rezervacije termina.{' '}
+                    <a
+                      href="https://jedroplus.com/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:opacity-80"
+                      style={{ color: primaryColor }}
+                    >
+                      Preberi politiko zasebnosti
+                    </a>
+                  </span>
+                </label>
+
+                {/* Marketing consent - OPTIONAL */}
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={customer.marketingConsent}
+                    onChange={(e) =>
+                      onUpdateCustomer({ marketingConsent: e.target.checked })
+                    }
+                    className="mt-1 h-4 w-4 rounded border-gray-300 focus:ring-2"
+                    style={{ accentColor: primaryColor }}
+                  />
+                  <span className="text-sm text-gray-600">
                     Želim prejemati obvestila o posebnih ponudbah, novostih in
                     akcijah. Privolitev lahko kadarkoli prekličem.
-                  </Label>
-                </div>
+                  </span>
+                </label>
+
+                {/* Privacy error */}
+                {showPrivacyError && !customer.privacyConsent && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-sm text-red-500"
+                  >
+                    Za oddajo rezervacije se morate strinjati s politiko zasebnosti.
+                  </motion.p>
+                )}
               </div>
             </div>
 
             {/* Submit Button */}
             <motion.button
               onClick={handleSubmit}
-              disabled={isSubmitting}
-              whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
-              whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
-              className="w-full mt-8 py-4 rounded-2xl text-white font-semibold text-lg shadow-lg transition-all disabled:opacity-70"
+              disabled={isSubmitting || !customer.privacyConsent}
+              whileHover={{ scale: isSubmitting || !customer.privacyConsent ? 1 : 1.02 }}
+              whileTap={{ scale: isSubmitting || !customer.privacyConsent ? 1 : 0.98 }}
+              className={`w-full mt-8 py-4 rounded-2xl text-white font-semibold text-lg shadow-lg transition-all ${!customer.privacyConsent ? 'opacity-50 cursor-not-allowed' : 'disabled:opacity-70'}`}
               style={{
                 backgroundColor: primaryColor,
                 boxShadow: `0 10px 30px ${primaryColor}40`,

@@ -17,11 +17,12 @@ interface BookingStepperProps {
 }
 
 const steps: Step[] = [
-  { id: 1, label: 'Izvajalec', shortLabel: 'Izvajalec' },
-  { id: 2, label: 'Storitev', shortLabel: 'Storitev' },
-  { id: 3, label: 'Termin', shortLabel: 'Termin' },
-  { id: 4, label: 'Podatki', shortLabel: 'Podatki' },
-  { id: 5, label: 'Potrditev', shortLabel: 'Potrditev' },
+  { id: 1, label: 'Kategorija', shortLabel: 'Kat.' },
+  { id: 2, label: 'Storitev', shortLabel: 'Stor.' },
+  { id: 3, label: 'Izvajalec', shortLabel: 'Izv.' },
+  { id: 4, label: 'Termin', shortLabel: 'Term.' },
+  { id: 5, label: 'Podatki', shortLabel: 'Pod.' },
+  { id: 6, label: 'Potrditev', shortLabel: 'Potr.' },
 ];
 
 export default function BookingStepper({

@@ -6,6 +6,7 @@ import {
   RawServiceCategory,
   CompanyData
 } from './types';
+import { supabase } from './supabase';
 
 const API_BASE_URL = 'https://tikej.app.n8n.cloud/webhook/booking';
 
@@ -33,6 +34,7 @@ interface RawInitResponse {
   services: RawService[];
   serviceCategories: RawServiceCategory[];
   servicesByCategory: Record<string, RawService[]>;
+  employeesByServiceId?: Record<string, (string | number)[]>;
   ui: {
     employeeSelection: {
       mode: 'single' | 'multi';
@@ -62,7 +64,8 @@ export interface BookingResponse {
 }
 
 // Helper function to parse price string (e.g., "60 EUR" -> 60)
-function parsePrice(priceStr: string): number {
+function parsePrice(priceStr: string | number | null | undefined): number {
+  if (priceStr === null || priceStr === undefined) return 0;
   if (typeof priceStr === 'number') return priceStr;
   const match = priceStr.match(/(\d+(?:[.,]\d+)?)/);
   if (match) {
@@ -96,6 +99,11 @@ function transformCategory(raw: RawServiceCategory): ServiceCategory {
 
 // Transform entire API response
 function transformInitResponse(raw: RawInitResponse): CompanyData {
+  // Debug: log company fields in development to help diagnose name display issues
+  if (process.env.NODE_ENV === 'development') {
+    console.debug('[booking] raw company object:', raw.company);
+  }
+
   // Transform services
   const services = (raw.services || []).map(transformService);
 
@@ -113,7 +121,12 @@ function transformInitResponse(raw: RawInitResponse): CompanyData {
     id: raw.company.id,
     name: raw.company.name,
     slug: raw.company.slug,
-    bookingName: raw.company['Naziv podjetja'] || raw.company.bookingName || raw.company['Booking ime'] || raw.company.name,
+    bookingName:
+      raw.company['Naziv podjetja'] ||
+      (raw as unknown as Record<string, unknown>)['Naziv podjetja'] as string ||
+      raw.company.bookingName ||
+      raw.company['Booking ime'] ||
+      raw.company.name,
   };
 
   return {
@@ -123,6 +136,7 @@ function transformInitResponse(raw: RawInitResponse): CompanyData {
     services,
     serviceCategories,
     servicesByCategory,
+    employeesByServiceId: raw.employeesByServiceId,
     ui: raw.ui || { employeeSelection: { mode: 'multi' } },
     theme: raw.theme || {
       primaryColor: '#8B5CF6',
@@ -148,8 +162,60 @@ export async function initializeBooking(companySlug: string): Promise<CompanyDat
   // Handle array response
   const rawData: RawInitResponse = Array.isArray(data) ? data[0] : data;
 
-  // Transform and return normalized data
-  return transformInitResponse(rawData);
+  // Fetch company display name directly from Supabase "Podatki podjetij" table
+  let nazivPodjetja: string | null = null;
+  try {
+    // Try multiple possible slug column names
+    const companyId = rawData.company?.id;
+    let rows: Record<string, unknown>[] | null = null;
+
+    // Attempt 1: filter by slug column
+    const res1 = await supabase.from('Podatki podjetij').select('*').eq('slug', companySlug).limit(1);
+    if (res1.data && res1.data.length > 0) {
+      rows = res1.data as Record<string, unknown>[];
+    }
+
+    // Attempt 2: filter by id from n8n response
+    if (!rows && companyId) {
+      const res2 = await supabase.from('Podatki podjetij').select('*').eq('id', companyId).limit(1);
+      if (res2.data && res2.data.length > 0) {
+        rows = res2.data as Record<string, unknown>[];
+      }
+    }
+
+    // Attempt 3: just take the first row (single-company setup)
+    if (!rows) {
+      const res3 = await supabase.from('Podatki podjetij').select('*').limit(1);
+      if (res3.data && res3.data.length > 0) {
+        rows = res3.data as Record<string, unknown>[];
+      }
+    }
+
+    if (rows && rows.length > 0) {
+      const row = rows[0];
+      console.log('[supabase] Podatki podjetij row keys:', Object.keys(row));
+      // Try all likely column name variations for the company name
+      nazivPodjetja =
+        (row['Naziv Podjetja'] as string) ||
+        (row['Naziv podjetja'] as string) ||
+        (row['naziv podjetja'] as string) ||
+        (row['naziv_podjetja'] as string) ||
+        (row['NazivPodjetja'] as string) ||
+        null;
+      console.log('[supabase] → nazivPodjetja:', nazivPodjetja);
+    }
+  } catch (err) {
+    console.error('[supabase] query failed:', err);
+  }
+
+  const companyData = transformInitResponse(rawData);
+
+  // Override bookingName with Supabase value if found
+  if (nazivPodjetja) {
+    companyData.company.bookingName = nazivPodjetja;
+  }
+
+  return companyData;
 }
 
 // 2. Get available time slots
@@ -159,20 +225,30 @@ export async function getAvailableSlots(params: {
   serviceId: string;
   employeeId: string | null;
   any_person: boolean;
+  eligibleEmployeeIds?: string[];
 }): Promise<string[]> {
+  const body: Record<string, unknown> = {
+    action: 'slots',
+    companySlug: params.companySlug,
+    date: params.date,
+    serviceId: params.serviceId,
+    any_person: params.any_person,
+  };
+
+  if (params.any_person) {
+    if (params.eligibleEmployeeIds && params.eligibleEmployeeIds.length > 0) {
+      body.employeeIds = params.eligibleEmployeeIds;
+    }
+  } else {
+    body.employeeId = params.employeeId;
+  }
+
   const response = await fetch(API_BASE_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      action: 'slots',
-      companySlug: params.companySlug,
-      date: params.date,
-      serviceId: params.serviceId,
-      employeeId: params.employeeId,
-      any_person: params.any_person,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -202,6 +278,8 @@ export async function createBooking(params: {
   customerGender: string;
   customerNote: string;
   gdprSendMarketing: boolean;
+  gdprPrivacyConsent: boolean;
+  consentTimestamp: string;
 }): Promise<BookingResponse> {
   const response = await fetch(API_BASE_URL, {
     method: 'POST',

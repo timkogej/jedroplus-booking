@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { User, Sparkles, CheckCircle } from 'lucide-react';
+import { User, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 import { Employee } from '@/lib/types';
 
 interface StepEmployeeSelectionProps {
@@ -73,7 +73,21 @@ export default function StepEmployeeSelection({
         </motion.p>
       </motion.div>
 
+      {/* No eligible employees message */}
+      {employees.length === 0 && (
+        <motion.div variants={itemVariants} className="glass rounded-2xl p-6 flex flex-col items-center gap-3 text-center">
+          <AlertCircle className="w-8 h-8 text-white/50" />
+          <p className="text-white/80 font-medium">
+            Za to storitev ni na voljo nobenega izvajalca.
+          </p>
+          <p className="text-sm text-white/50">
+            Prosimo, izberite drugo storitev.
+          </p>
+        </motion.div>
+      )}
+
       {/* Options list */}
+      {employees.length > 0 && (
       <div className="flex flex-col gap-3">
         {/* Kdorkoli */}
         <motion.div variants={itemVariants}>
@@ -199,6 +213,7 @@ export default function StepEmployeeSelection({
           );
         })}
       </div>
+      )}
     </motion.div>
   );
 }

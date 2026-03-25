@@ -1,3 +1,46 @@
+// ─── Season & Theme Types ───────────────────────────────────────────────────
+
+export type Season = 'winter' | 'spring' | 'summer' | 'autumn'
+
+export type Holiday =
+  | 'christmas'
+  | 'newyear'
+  | 'valentine'
+  | 'easter'
+  | 'halloween'
+  | 'thanksgiving'
+
+export interface SeasonalThemeConfig {
+  name: string
+  snowflakes?: boolean
+  flowers?: boolean
+  leaves?: boolean
+  sunRays?: boolean
+  waves?: boolean
+  santaHats?: boolean
+  ornaments?: boolean
+  hearts?: boolean
+  eggs?: boolean
+  pumpkins?: boolean
+  ghosts?: boolean
+  bats?: boolean
+  spiderWebs?: boolean
+  butterflies?: boolean
+  fireworks?: boolean
+  confettiAccents?: boolean
+  harvest?: boolean
+  accentColor: string
+  overlayColor: string
+  particleColor: string
+  fontClass: string
+}
+
+export interface SeasonalTheme {
+  season: Season
+  holiday?: Holiday
+  theme: SeasonalThemeConfig
+}
+
 // Theme configuration
 export interface Theme {
   primaryColor: string;
@@ -91,6 +134,7 @@ export interface CompanyData {
   services: Service[];
   serviceCategories: ServiceCategory[];
   servicesByCategory: Record<string, Service[]>;
+  employeesByServiceId?: Record<string, (string | number)[]>;
   ui: UIConfig;
   theme: Theme;
 }
@@ -103,6 +147,7 @@ export interface CustomerData {
   email: string;
   gender: 'Moški' | 'Ženska' | 'Drugo' | '';
   notes: string;
+  privacyConsent: boolean;
   marketingConsent: boolean;
 }
 
@@ -120,6 +165,7 @@ export interface BookingState {
   currentStep: number;
   selectedEmployee: Employee | null;
   anyPerson: boolean;
+  eligibleEmployeeIds: string[]; // String-normalized IDs for employees eligible for selected service
   selectedCategory: ServiceCategory | null;
   selectedService: Service | null;
   selectedDate: Date | null;

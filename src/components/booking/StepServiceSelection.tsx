@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Clock, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Clock, ChevronRight } from 'lucide-react';
 import { Service, ServiceCategory } from '@/lib/types';
 
 interface StepServiceSelectionProps {
@@ -9,7 +9,6 @@ interface StepServiceSelectionProps {
   category: ServiceCategory;
   selectedService: Service | null;
   onSelectService: (service: Service) => void;
-  onBack: () => void;
   primaryColor: string;
 }
 
@@ -42,7 +41,6 @@ export default function StepServiceSelection({
   category,
   selectedService,
   onSelectService,
-  onBack,
   primaryColor,
 }: StepServiceSelectionProps) {
   const formatPrice = (price: number) => {
@@ -62,17 +60,6 @@ export default function StepServiceSelection({
       animate="visible"
       className="w-full max-w-4xl mx-auto px-4"
     >
-      {/* Back Button */}
-      <motion.button
-        variants={itemVariants}
-        onClick={onBack}
-        className="flex items-center gap-2 text-white/80 hover:text-white mb-6 transition-colors"
-        whileHover={{ x: -4 }}
-      >
-        <ArrowLeft className="w-5 h-5" />
-        <span>Nazaj na kategorije</span>
-      </motion.button>
-
       {/* Header */}
       <motion.div variants={itemVariants} className="text-center mb-10">
         <motion.div
